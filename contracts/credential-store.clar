@@ -38,3 +38,49 @@
     accumulated-earnings: uint,
   }
 )
+
+;; Track total registered songs
+(define-data-var registered-song-count uint u0)
+
+;; Track contract administrator
+(define-data-var contract-administrator principal tx-sender)
+
+;; Read-only functions
+(define-read-only (get-song-information (song-identifier uint))
+  (map-get? RegisteredSongs { song-identifier: song-identifier })
+)
+
+(define-read-only (get-royalty-distribution
+    (song-identifier uint)
+    (royalty-recipient principal)
+  )
+  (map-get? RoyaltyDistribution {
+    song-identifier: song-identifier,
+    royalty-recipient: royalty-recipient,
+  })
+)
+
+(define-read-only (get-total-registered-songs)
+  (var-get registered-song-count)
+)
+
+;; Get royalty shares for a song
+(define-read-only (get-royalty-shares-by-song (song-identifier uint))
+  (let (
+      (song-info (get-song-information song-identifier))
+      (primary-artist (match song-info
+        record (get primary-artist record)
+        tx-sender
+      ))
+    )
+    (let ((distribution (get-royalty-distribution song-identifier primary-artist)))
+      (match distribution
+        share (list {
+          royalty-recipient: primary-artist,
+          royalty-percentage: (get royalty-percentage share),
+        })
+        (list)
+      )
+    )
+  )
+)
