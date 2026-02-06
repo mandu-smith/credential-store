@@ -120,3 +120,41 @@
     (not (is-eq principal-to-check (var-get contract-administrator))) ;; Can't be the admin
   )
 )
+
+;; Fixed process-royalty-share function
+(define-private (process-royalty-share
+    (share {
+      royalty-recipient: principal,
+      royalty-percentage: uint,
+    })
+    (payment-amount uint)
+  )
+  (let ((recipient-payment-amount (/ (* payment-amount (get royalty-percentage share)) u100)))
+    (if (> recipient-payment-amount u0)
+      (match (stx-transfer? recipient-payment-amount tx-sender
+        (get royalty-recipient share)
+      )
+        success payment-amount
+        error u0
+      )
+      u0
+    )
+  )
+)
+
+;; Updated distribute-royalty-payment
+(define-private (distribute-royalty-payment
+    (song-identifier uint)
+    (payment-amount uint)
+  )
+  (let (
+      (royalty-distribution-list (get-royalty-shares-by-song song-identifier))
+      (total-distributed (fold process-royalty-share royalty-distribution-list payment-amount))
+    )
+    (begin
+      (asserts! (> (len royalty-distribution-list) u0) ERR-SONG-DOES-NOT-EXIST)
+      (asserts! (> total-distributed u0) ERR-PAYMENT-FAILED)
+      (ok total-distributed)
+    )
+  )
+)
