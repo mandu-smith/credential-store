@@ -84,3 +84,39 @@
     )
   )
 )
+
+;; Helper functions for input validation
+(define-private (is-valid-royalty-share (share {
+  royalty-percentage: uint,
+  participant-role: (string-ascii 20),
+  accumulated-earnings: uint,
+}))
+  (> (get royalty-percentage share) u0)
+)
+
+(define-private (verify-contract-administrator)
+  (is-eq tx-sender (var-get contract-administrator))
+)
+
+(define-private (validate-royalty-percentage (royalty-percentage uint))
+  (and (>= royalty-percentage u0) (<= royalty-percentage u100))
+)
+
+(define-private (validate-string-ascii (input (string-ascii 50)))
+  (let ((length (len input)))
+    (and (> length u0) (<= length u50))
+  )
+)
+
+(define-private (validate-participant-role (role (string-ascii 20)))
+  (let ((length (len role)))
+    (and (> length u0) (<= length u20))
+  )
+)
+
+(define-private (validate-principal (principal-to-check principal))
+  (and
+    (not (is-eq principal-to-check tx-sender)) ;; Can't be the sender
+    (not (is-eq principal-to-check (var-get contract-administrator))) ;; Can't be the admin
+  )
+)
