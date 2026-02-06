@@ -158,3 +158,59 @@
     )
   )
 )
+
+;; Public functions with added input validation
+(define-public (register-new-song
+    (song-title (string-ascii 50))
+    (primary-artist principal)
+  )
+  (let ((new-song-identifier (+ (var-get registered-song-count) u1)))
+    (begin
+      (asserts! (verify-contract-administrator) ERR-UNAUTHORIZED-ACCESS)
+      (asserts! (validate-string-ascii song-title) ERR-INVALID-SONG-TITLE)
+      (asserts! (validate-principal primary-artist) ERR-INVALID-PRIMARY-ARTIST)
+
+      (map-set RegisteredSongs { song-identifier: new-song-identifier } {
+        song-title: song-title,
+        primary-artist: primary-artist,
+        accumulated-revenue: u0,
+        publication-date: stacks-block-height,
+        song-status-active: true,
+      })
+      (var-set registered-song-count new-song-identifier)
+      (ok new-song-identifier)
+    )
+  )
+)
+
+(define-public (set-royalty-distribution
+    (song-identifier uint)
+    (royalty-recipient principal)
+    (royalty-percentage uint)
+    (participant-role (string-ascii 20))
+  )
+  (let ((song-record (get-song-information song-identifier)))
+    (begin
+      (asserts! (is-some song-record) ERR-SONG-DOES-NOT-EXIST)
+      (asserts! (validate-royalty-percentage royalty-percentage)
+        ERR-INVALID-ROYALTY-PERCENTAGE
+      )
+      (asserts! (validate-participant-role participant-role)
+        ERR-INVALID-PARTICIPANT-ROLE
+      )
+      (asserts! (validate-principal royalty-recipient)
+        ERR-INVALID-ROYALTY-RECIPIENT
+      )
+
+      (map-set RoyaltyDistribution {
+        song-identifier: song-identifier,
+        royalty-recipient: royalty-recipient,
+      } {
+        royalty-percentage: royalty-percentage,
+        participant-role: participant-role,
+        accumulated-earnings: u0,
+      })
+      (ok true)
+    )
+  )
+)
