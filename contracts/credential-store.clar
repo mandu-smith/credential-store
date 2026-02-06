@@ -214,3 +214,57 @@
     )
   )
 )
+
+(define-public (process-royalty-payment
+    (song-identifier uint)
+    (royalty-payment-amount uint)
+  )
+  (let ((song-record (get-song-information song-identifier)))
+    (begin
+      (asserts! (is-some song-record) ERR-SONG-DOES-NOT-EXIST)
+      (asserts! (>= (stx-get-balance tx-sender) royalty-payment-amount)
+        ERR-INSUFFICIENT-PAYMENT-FUNDS
+      )
+
+      (try! (distribute-royalty-payment song-identifier royalty-payment-amount))
+      (map-set RegisteredSongs { song-identifier: song-identifier }
+        (merge (unwrap-panic song-record) { accumulated-revenue: (+ (get accumulated-revenue (unwrap-panic song-record))
+          royalty-payment-amount
+        ) }
+        ))
+      (ok true)
+    )
+  )
+)
+
+(define-public (update-song-active-status
+    (song-identifier uint)
+    (new-active-status bool)
+  )
+  (let ((song-record (get-song-information song-identifier)))
+    (begin
+      (asserts! (verify-contract-administrator) ERR-UNAUTHORIZED-ACCESS)
+      (asserts! (is-some song-record) ERR-SONG-DOES-NOT-EXIST)
+
+      (map-set RegisteredSongs { song-identifier: song-identifier }
+        (merge (unwrap-panic song-record) { song-status-active: new-active-status })
+      )
+      (ok true)
+    )
+  )
+)
+
+(define-public (transfer-administrator-rights (new-administrator principal))
+  (begin
+    (asserts! (verify-contract-administrator) ERR-UNAUTHORIZED-ACCESS)
+    (asserts! (validate-principal new-administrator) ERR-INVALID-ADMINISTRATOR)
+
+    (var-set contract-administrator new-administrator)
+    (ok true)
+  )
+)
+
+;; Contract initialization
+(begin
+  (var-set registered-song-count u0)
+)
