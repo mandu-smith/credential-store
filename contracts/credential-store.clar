@@ -45,6 +45,12 @@
 ;; Track contract administrator
 (define-data-var contract-administrator principal tx-sender)
 
+;; Track total royalty percentage per song
+(define-map SongTotalRoyaltyPercentage
+  { song-identifier: uint }
+  { total-percentage: uint }
+)
+
 ;; Read-only functions
 (define-read-only (get-song-information (song-identifier uint))
   (map-get? RegisteredSongs { song-identifier: song-identifier })
@@ -64,36 +70,7 @@
   (var-get registered-song-count)
 )
 
-;; Get royalty shares for a song
-(define-read-only (get-royalty-shares-by-song (song-identifier uint))
-  (let (
-      (song-info (get-song-information song-identifier))
-      (primary-artist (match song-info
-        record (get primary-artist record)
-        tx-sender
-      ))
-    )
-    (let ((distribution (get-royalty-distribution song-identifier primary-artist)))
-      (match distribution
-        share (list {
-          royalty-recipient: primary-artist,
-          royalty-percentage: (get royalty-percentage share),
-        })
-        (list)
-      )
-    )
-  )
-)
-
 ;; Helper functions for input validation
-(define-private (is-valid-royalty-share (share {
-  royalty-percentage: uint,
-  participant-role: (string-ascii 20),
-  accumulated-earnings: uint,
-}))
-  (> (get royalty-percentage share) u0)
-)
-
 (define-private (verify-contract-administrator)
   (is-eq tx-sender (var-get contract-administrator))
 )
@@ -121,7 +98,7 @@
   )
 )
 
-;; Fixed process-royalty-share function
+;; Process royalty share payment
 (define-private (process-royalty-share
     (share {
       royalty-recipient: principal,
@@ -142,7 +119,7 @@
   )
 )
 
-;; Updated distribute-royalty-payment
+;; Distribute royalty payment
 (define-private (distribute-royalty-payment
     (song-identifier uint)
     (payment-amount uint)
@@ -159,7 +136,7 @@
   )
 )
 
-;; Public functions with added input validation
+;; Public functions
 (define-public (register-new-song
     (song-title (string-ascii 50))
     (primary-artist principal)
@@ -183,6 +160,7 @@
   )
 )
 
+;; Set royalty distribution with cumulative percentage check
 (define-public (set-royalty-distribution
     (song-identifier uint)
     (royalty-recipient principal)
@@ -192,16 +170,22 @@
   (let ((song-record (get-song-information song-identifier)))
     (begin
       (asserts! (is-some song-record) ERR-SONG-DOES-NOT-EXIST)
-      (asserts! (validate-royalty-percentage royalty-percentage)
-        ERR-INVALID-ROYALTY-PERCENTAGE
-      )
-      (asserts! (validate-participant-role participant-role)
-        ERR-INVALID-PARTICIPANT-ROLE
-      )
-      (asserts! (validate-principal royalty-recipient)
-        ERR-INVALID-ROYALTY-RECIPIENT
+      (asserts! (validate-royalty-percentage royalty-percentage) ERR-INVALID-ROYALTY-PERCENTAGE)
+      (asserts! (validate-participant-role participant-role) ERR-INVALID-PARTICIPANT-ROLE)
+      (asserts! (validate-principal royalty-recipient) ERR-INVALID-ROYALTY-RECIPIENT)
+
+      ;; Ensure total royalties <= 100%
+      (let ((current-total (default-to u0
+                           (get total-percentage
+                             (map-get? SongTotalRoyaltyPercentage { song-identifier: song-identifier })
+                           ))))
+        (asserts! (<= (+ current-total royalty-percentage) u100) ERR-INVALID-ROYALTY-PERCENTAGE)
+        (map-set SongTotalRoyaltyPercentage { song-identifier: song-identifier } {
+          total-percentage: (+ current-total royalty-percentage)
+        })
       )
 
+      ;; Set distribution
       (map-set RoyaltyDistribution {
         song-identifier: song-identifier,
         royalty-recipient: royalty-recipient,
@@ -222,16 +206,14 @@
   (let ((song-record (get-song-information song-identifier)))
     (begin
       (asserts! (is-some song-record) ERR-SONG-DOES-NOT-EXIST)
-      (asserts! (>= (stx-get-balance tx-sender) royalty-payment-amount)
-        ERR-INSUFFICIENT-PAYMENT-FUNDS
-      )
+      (asserts! (>= (stx-get-balance tx-sender) royalty-payment-amount) ERR-INSUFFICIENT-PAYMENT-FUNDS)
 
       (try! (distribute-royalty-payment song-identifier royalty-payment-amount))
       (map-set RegisteredSongs { song-identifier: song-identifier }
-        (merge (unwrap-panic song-record) { accumulated-revenue: (+ (get accumulated-revenue (unwrap-panic song-record))
-          royalty-payment-amount
-        ) }
-        ))
+        (merge (unwrap-panic song-record) {
+          accumulated-revenue: (+ (get accumulated-revenue (unwrap-panic song-record)) royalty-payment-amount)
+        })
+      )
       (ok true)
     )
   )
@@ -245,7 +227,6 @@
     (begin
       (asserts! (verify-contract-administrator) ERR-UNAUTHORIZED-ACCESS)
       (asserts! (is-some song-record) ERR-SONG-DOES-NOT-EXIST)
-
       (map-set RegisteredSongs { song-identifier: song-identifier }
         (merge (unwrap-panic song-record) { song-status-active: new-active-status })
       )
@@ -258,7 +239,6 @@
   (begin
     (asserts! (verify-contract-administrator) ERR-UNAUTHORIZED-ACCESS)
     (asserts! (validate-principal new-administrator) ERR-INVALID-ADMINISTRATOR)
-
     (var-set contract-administrator new-administrator)
     (ok true)
   )
